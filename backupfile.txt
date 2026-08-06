@@ -1,94 +1,148 @@
 import requests
 import json
+import html
+import re
+import os
 from llm import analyze_email
-import html 
-import re 
+from refreshtoken import get_access_token
+from getaccountId import  get_account_id
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-ACCESS_TOKEN = "1000.eb3844559ba21715085855ffbc6f0310.a876f812ab8c94bf2b86304bf02d9d3a"
-ACCOUNT_ID = "5350818000000002002"
+# from llm import analyze_email
 
-url = f"https://mail.zoho.in/api/accounts/{ACCOUNT_ID}/messages/view?limit=1&start=0"
+
+ACCESS_TOKEN = get_access_token()
+ACCOUNT_ID =  get_account_id()
+
+
+WEB_APP_URL = os.getenv("WEB_APP_URL")
+
+# Fetch multiple emails
+url = f"https://mail.zoho.in/api/accounts/{ACCOUNT_ID}/messages/view?limit=50&start=0"
 
 headers = {
     "Authorization": f"Zoho-oauthtoken {ACCESS_TOKEN}"
 }
 
-zoho_response = requests.get(url, headers=headers)
 
-print("Status:", zoho_response.status_code)
+# -----------------------------
+# Remove HTML from email address
+# -----------------------------
+def str_to_address(email_address: str) -> str:
+    decoded = html.unescape(email_address)
 
-data = zoho_response.json()
-email = data["data"][0]
-#print (data)
-print(email)
-#print(json.dumps(data, indent=4))
-
-#------------------ Refining the  TO address data ------------------
-##### creating a function for to modify address ######
-
-
-def str_to_address(email_address:str) -> str: 
-    to_address = email.get("toAddress", "")
-    decoded = html.unescape(to_address)
     match = re.search(r"<([^>]+)>", decoded)
+
     if match:
-        to_address = match.group(1)
-    return to_address
+        return match.group(1)
+
+    return decoded
+
+def check_bcc(bcc_address) -> str :
+    if bcc_address == '': 
+        return "Not Provided"
+    else:
+        return bcc_address
+
+# -----------------------------
+# Load processed message IDs
+# -----------------------------
+PROCESSED_FILE = "processed_ids.json"
+
+if os.path.exists(PROCESSED_FILE):
+    with open(PROCESSED_FILE, "r") as f:
+        processed_ids = set(json.load(f))
+else:
+    processed_ids = set()
 
 
+# -----------------------------
+# Fetch emails
+# -----------------------------
+response = requests.get(url, headers=headers)
+
+print("Status:", response.status_code)
+
+if response.status_code != 200:
+    print(response.text)
+    exit()
+
+#-----------------check  response type ---------------------#
+print(response.status_code)
+print(response.headers.get("Content-Type"))
+print(response.text[:500])
+
+#-----------------------------------------------------------#
+emails = response.json().get("data", [])
+#print(emails)
+
+print(f"Found {len(emails)} emails")
 
 
-#---------------------------------------------------------
-#---------------------------------------------------
-Email_details = {
-       "From": email.get("sender", ""),
-         "To": email.get("toAddress", ""),
-        "Body": email.get("summary", ""),
-        "Subject": email.get("subject", "")
-    }
+# -----------------------------
+# Process every new email
+# -----------------------------
+for email in emails:
 
-#print(Email_details)
+    message_id = email.get("messageId")
 
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzGHR3jWZOyjgGst-bBx0p_wEZRY_PdSJ732T2xt6Dc0k7gxINK1Je9DRobNmxXOoG5tQ/exec"
+    # Skip already processed emails
+    if message_id in processed_ids:
+        continue
 
-#gsheet_response = requests.post(
- #   WEB_APP_URL,
-  # json=Email_details
-#)
+    print(f"Processing : {message_id}")
 
+    email_body = email.get("summary", "")
 
+    # Uncomment once LLM quota is back
+    print(email_body)
+    response = analyze_email(email_body)
+    print(response)
+    llm_output = json.loads(response)
 
-#/print(gsheet_response.status_code)
-#print(gsheet_response.text)
+    Email_details = {
 
+        "From": email.get("sender", ""),
+        "FromAddress" : email.get("fromAddress" , ""),
+        "CC": str_to_address(email.get("ccAddress", "")),
+        "BCC": check_bcc(str_to_address(email.get("bcAddress", ""))),
+        "To": str_to_address(
+            email.get("toAddress", "")
+        ),
 
-
-email_body = email.get("summary", ""),
-#response = analyze_email(email_body)             #####   right now , llm model is out of credit fn 
-#print(response)
-#llm_output = json.loads(response[0]["text"])      #####  right now , llm model is out of credit fn 
-
-
-Email_details = {
-       "From": email.get("sender", ""),
-       "To": str_to_address(email.get("toAddress", "")),
-        "Body": email.get("summary", ""),
         "Subject": email.get("subject", ""),
-       #"Priority" : llm_output["urgency"],
-       # "Summary" : llm_output["summary"],
-       # "Positive_Reply_Suggestion": llm_output["reply"]["very_positive"],
-       # "Professional_Reply_Suggestion" : llm_output["reply"]["professional"],
-        #"Firm_Reply_Suggestion": llm_output["reply"]["slightly_frustrated"]
+
+        "Body": email.get("summary", ""),
+
+        # Uncomment when LLM is enabled
         
+        "Priority": llm_output["urgency"],
+        "Summary": llm_output["summary"],
+        "Positive_Reply_Suggestion": llm_output["reply"]["very_positive"],
+        "Professional_Reply_Suggestion": llm_output["reply"]["professional"],
+        "Firm_Reply_Suggestion": llm_output["reply"]["slightly_frustrated"]
     }
 
-#print(Email_details)
+    print(Email_details)
 
-gsheet_response = requests.post(
-   WEB_APP_URL,
-   json=Email_details
-)
-#print(gsheet_response.status_code)
-#print(gsheet_response.text)
+    gsheet_response = requests.post(
+        WEB_APP_URL,
+        json=Email_details
+    )
 
+    print(gsheet_response.status_code)
+    print(gsheet_response.text)
+
+    # Save processed ID only if upload succeeded
+    if gsheet_response.status_code == 200:
+        processed_ids.add(message_id)
+
+
+# -----------------------------
+# Save processed IDs
+# -----------------------------
+with open(PROCESSED_FILE, "w") as f:
+    json.dump(list(processed_ids), f, indent=4)
