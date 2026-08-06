@@ -3,35 +3,25 @@ import json
 import html
 import re
 import os
+import time
+from dotenv import load_dotenv
+
 from llm import analyze_email
 from refreshtoken import get_access_token
-from getaccountId import  get_account_id
-from dotenv import load_dotenv
+from getaccountId import get_account_id
 
 load_dotenv()
 
-
-# from llm import analyze_email
-
-
-ACCESS_TOKEN = get_access_token()
-ACCOUNT_ID =  get_account_id()
-
-
 WEB_APP_URL = os.getenv("WEB_APP_URL")
 
-# Fetch multiple emails
-url = f"https://mail.zoho.in/api/accounts/{ACCOUNT_ID}/messages/view?limit=50&start=0"
-
-headers = {
-    "Authorization": f"Zoho-oauthtoken {ACCESS_TOKEN}"
-}
+PROCESSED_FILE = "processed_ids.json"
 
 
-# -----------------------------
-# Remove HTML from email address
-# -----------------------------
-def str_to_address(email_address: str) -> str:
+# ---------------------------------------------------------
+# Utility Functions
+# ---------------------------------------------------------
+
+def str_to_address(email_address: str) ->str:
     decoded = html.unescape(email_address)
 
     match = re.search(r"<([^>]+)>", decoded)
@@ -41,108 +31,187 @@ def str_to_address(email_address: str) -> str:
 
     return decoded
 
-def check_bcc(bcc_address) -> str :
-    if bcc_address == '': 
+
+def check_bcc(bcc_address: str) -> str:
+    if not bcc_address:
         return "Not Provided"
-    else:
-        return bcc_address
-
-# -----------------------------
-# Load processed message IDs
-# -----------------------------
-PROCESSED_FILE = "processed_ids.json"
-
-if os.path.exists(PROCESSED_FILE):
-    with open(PROCESSED_FILE, "r") as f:
-        processed_ids = set(json.load(f))
-else:
-    processed_ids = set()
+    return bcc_address
 
 
-# -----------------------------
-# Fetch emails
-# -----------------------------
-response = requests.get(url, headers=headers)
+# ---------------------------------------------------------
+# Processed IDs
+# ---------------------------------------------------------
 
-print("Status:", response.status_code)
+def load_processed_ids():
 
-if response.status_code != 200:
-    print(response.text)
-    exit()
+    if os.path.exists(PROCESSED_FILE):
+        with open(PROCESSED_FILE, "r") as f:
+            return set(json.load(f))
 
-#-----------------check  response type ---------------------#
-print(response.status_code)
-print(response.headers.get("Content-Type"))
-print(response.text[:500])
-
-#-----------------------------------------------------------#
-emails = response.json().get("data", [])
-#print(emails)
-
-print(f"Found {len(emails)} emails")
+    return set()
 
 
-# -----------------------------
-# Process every new email
-# -----------------------------
-for email in emails:
+def save_processed_ids(processed_ids):
 
-    message_id = email.get("messageId")
+    with open(PROCESSED_FILE, "w") as f:
+        json.dump(list(processed_ids), f, indent=4)
 
-    # Skip already processed emails
-    if message_id in processed_ids:
-        continue
 
-    print(f"Processing : {message_id}")
+# ---------------------------------------------------------
+# Main Email Processing Function
+# ---------------------------------------------------------
 
-    email_body = email.get("summary", "")
+def process_emails():
 
-    # Uncomment once LLM quota is back
-    print(email_body)
-    response = analyze_email(email_body)
-    print(response)
-    llm_output = json.loads(response)
+    print("=" * 60)
+    print("Checking for new emails...")
+    print("=" * 60)
 
-    Email_details = {
+    processed_ids = load_processed_ids()
 
-        "From": email.get("sender", ""),
-        "FromAddress" : email.get("fromAddress" , ""),
-        "CC": str_to_address(email.get("ccAddress", "")),
-        "BCC": check_bcc(str_to_address(email.get("bcAddress", ""))),
-        "To": str_to_address(
-            email.get("toAddress", "")
-        ),
+    # Fresh token every cycle
+    access_token = get_access_token()
+    account_id = get_account_id()
 
-        "Subject": email.get("subject", ""),
-
-        "Body": email.get("summary", ""),
-
-        # Uncomment when LLM is enabled
-        
-        "Priority": llm_output["urgency"],
-        "Summary": llm_output["summary"],
-        "Positive_Reply_Suggestion": llm_output["reply"]["very_positive"],
-        "Professional_Reply_Suggestion": llm_output["reply"]["professional"],
-        "Firm_Reply_Suggestion": llm_output["reply"]["slightly_frustrated"]
-    }
-
-    print(Email_details)
-
-    gsheet_response = requests.post(
-        WEB_APP_URL,
-        json=Email_details
+    url = (
+        f"https://mail.zoho.in/api/accounts/"
+        f"{account_id}/messages/view?limit=50&start=0"
     )
 
-    print(gsheet_response.status_code)
-    print(gsheet_response.text)
+    headers = {
+        "Authorization": f"Zoho-oauthtoken {access_token}"
+    }
 
-    # Save processed ID only if upload succeeded
-    if gsheet_response.status_code == 200:
-        processed_ids.add(message_id)
+    response = requests.get(url, headers=headers)
+
+    print("Status Code :", response.status_code)
+
+    if response.status_code != 200:
+        print("Unable to fetch emails.")
+        print(response.text)
+        return
+
+    emails = response.json().get("data", [])
+
+    print(f"Found {len(emails)} emails.")
+
+    for email in emails:
+
+        message_id = email.get("messageId")
+
+        if message_id in processed_ids:
+            continue
+
+        print(f"\nProcessing Email : {message_id}")
+
+        try:
+
+            email_body = email.get("summary", "")
+
+            llm_response = analyze_email(email_body)
+            llm_output = json.loads(llm_response)
+
+            email_details = {
+
+                "From": email.get("sender", ""),
+
+                "FromAddress": email.get(
+                    "fromAddress",
+                    ""
+                ),
+
+                "CC": str_to_address(
+                    email.get(
+                        "ccAddress",
+                        ""
+                    )
+                ),
+
+                "BCC": check_bcc(
+                    str_to_address(
+                        email.get(
+                            "bcAddress",
+                            ""
+                        )
+                    )
+                ),
+
+                "To": str_to_address(
+                    email.get(
+                        "toAddress",
+                        ""
+                    )
+                ),
+
+                "Subject": email.get(
+                    "subject",
+                    ""
+                ),
+
+                "Body": email_body,
+
+                "Priority": llm_output["urgency"],
+
+                "Summary": llm_output["summary"],
+
+                "Positive_Reply_Suggestion":
+                    llm_output["reply"]["very_positive"],
+
+                "Professional_Reply_Suggestion":
+                    llm_output["reply"]["professional"],
+
+                "Firm_Reply_Suggestion":
+                    llm_output["reply"]["slightly_frustrated"]
+
+            }
+            print(email_details)
+            print("Uploading to Google Sheet...")
+
+            gsheet_response = requests.post(
+                WEB_APP_URL,
+                json=email_details
+            )
+
+            print("Google Sheet Status:",
+                  gsheet_response.status_code)
+
+            if gsheet_response.status_code == 200:
+
+                processed_ids.add(message_id)
+                save_processed_ids(processed_ids)
+
+                print("Successfully Uploaded")
+
+            else:
+
+                print("Upload Failed")
+                print(gsheet_response.text)
+
+        except Exception as e:
+
+            print(f"Error processing {message_id}")
+            print(e)
+
+    print("\nCycle Completed.")
 
 
-# -----------------------------
-# Save processed IDs
-# -----------------------------
-with open(PROCESSED_FILE, "w") as f:
-    json.dump(list(processed_ids), f, indent=4)
+# ---------------------------------------------------------
+# Infinite Runner
+# ---------------------------------------------------------
+
+if __name__ == "__main__":
+
+    while True:
+
+        try:
+
+            process_emails()
+
+        except Exception as e:
+
+            print("\nUnexpected Error")
+            print(e)
+
+        print("\nSleeping for 5 minutes...\n")
+
+        time.sleep(300)
