@@ -39,3 +39,10 @@ def get_access_token():
 
 #print(response.status_code)
 #print(json.dumps(response.json(), indent=4))
+
+###### show tokens & saving it 
+if __name__ == "__main__":
+    token = get_access_token()
+    print(token)
+    with open("access_token.txt", "w") as f:
+        f.write(token)
