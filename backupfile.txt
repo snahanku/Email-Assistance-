@@ -1,0 +1,94 @@
+import requests
+import json
+from llm import analyze_email
+import html 
+import re 
+
+
+ACCESS_TOKEN = "1000.eb3844559ba21715085855ffbc6f0310.a876f812ab8c94bf2b86304bf02d9d3a"
+ACCOUNT_ID = "5350818000000002002"
+
+url = f"https://mail.zoho.in/api/accounts/{ACCOUNT_ID}/messages/view?limit=1&start=0"
+
+headers = {
+    "Authorization": f"Zoho-oauthtoken {ACCESS_TOKEN}"
+}
+
+zoho_response = requests.get(url, headers=headers)
+
+print("Status:", zoho_response.status_code)
+
+data = zoho_response.json()
+email = data["data"][0]
+#print (data)
+print(email)
+#print(json.dumps(data, indent=4))
+
+#------------------ Refining the  TO address data ------------------
+##### creating a function for to modify address ######
+
+
+def str_to_address(email_address:str) -> str: 
+    to_address = email.get("toAddress", "")
+    decoded = html.unescape(to_address)
+    match = re.search(r"<([^>]+)>", decoded)
+    if match:
+        to_address = match.group(1)
+    return to_address
+
+
+
+
+#---------------------------------------------------------
+#---------------------------------------------------
+Email_details = {
+       "From": email.get("sender", ""),
+         "To": email.get("toAddress", ""),
+        "Body": email.get("summary", ""),
+        "Subject": email.get("subject", "")
+    }
+
+#print(Email_details)
+
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzGHR3jWZOyjgGst-bBx0p_wEZRY_PdSJ732T2xt6Dc0k7gxINK1Je9DRobNmxXOoG5tQ/exec"
+
+#gsheet_response = requests.post(
+ #   WEB_APP_URL,
+  # json=Email_details
+#)
+
+
+
+#/print(gsheet_response.status_code)
+#print(gsheet_response.text)
+
+
+
+email_body = email.get("summary", ""),
+#response = analyze_email(email_body)             #####   right now , llm model is out of credit fn 
+#print(response)
+#llm_output = json.loads(response[0]["text"])      #####  right now , llm model is out of credit fn 
+
+
+Email_details = {
+       "From": email.get("sender", ""),
+       "To": str_to_address(email.get("toAddress", "")),
+        "Body": email.get("summary", ""),
+        "Subject": email.get("subject", ""),
+       #"Priority" : llm_output["urgency"],
+       # "Summary" : llm_output["summary"],
+       # "Positive_Reply_Suggestion": llm_output["reply"]["very_positive"],
+       # "Professional_Reply_Suggestion" : llm_output["reply"]["professional"],
+        #"Firm_Reply_Suggestion": llm_output["reply"]["slightly_frustrated"]
+        
+    }
+
+#print(Email_details)
+
+gsheet_response = requests.post(
+   WEB_APP_URL,
+   json=Email_details
+)
+#print(gsheet_response.status_code)
+#print(gsheet_response.text)
+
