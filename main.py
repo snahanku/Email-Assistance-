@@ -70,6 +70,12 @@ if response.status_code != 200:
     print(response.text)
     exit()
 
+#-----------------check  response type ---------------------#
+print(response.status_code)
+print(response.headers.get("Content-Type"))
+print(response.text[:500])
+
+#-----------------------------------------------------------#
 emails = response.json().get("data", [])
 #print(emails)
 
