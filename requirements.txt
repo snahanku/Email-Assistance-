@@ -4,3 +4,4 @@ langchain
 langchain-community
 langchain-groq
 groq
+psycopg2-binary

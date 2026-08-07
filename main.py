@@ -10,11 +10,17 @@ from llm import analyze_email
 from refreshtoken import get_access_token
 from getaccountId import get_account_id
 
+from processed_db import (
+    initialize_database,
+    is_processed,
+    mark_processed
+)
 load_dotenv()
 
 WEB_APP_URL = os.getenv("WEB_APP_URL")
 
 PROCESSED_FILE = "processed_ids.json"
+
 
 
 # ---------------------------------------------------------
@@ -62,7 +68,7 @@ def save_processed_ids(processed_ids):
 # ---------------------------------------------------------
 
 def process_emails():
-
+    
     print("=" * 60)
     print("Checking for new emails...")
     print("=" * 60)
@@ -72,7 +78,7 @@ def process_emails():
     # Fresh token every cycle
     access_token = get_access_token()
     account_id = get_account_id()
-
+     
     url = (
         f"https://mail.zoho.in/api/accounts/"
         f"{account_id}/messages/view?limit=50&start=0"
@@ -179,7 +185,7 @@ def process_emails():
 
                 processed_ids.add(message_id)
                 save_processed_ids(processed_ids)
-
+                #mark_processed(message_id)
                 print("Successfully Uploaded")
 
             else:
