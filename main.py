@@ -5,6 +5,7 @@ import re
 import os
 import time
 from dotenv import load_dotenv
+import traceback
 
 from llm import analyze_email
 from refreshtoken import get_access_token
@@ -26,6 +27,11 @@ PROCESSED_FILE = "processed_ids.json"
 # ---------------------------------------------------------
 # Utility Functions
 # ---------------------------------------------------------
+
+
+
+clean_email_body = lambda body: html.unescape(body) if body else ""
+
 
 def str_to_address(email_address: str) ->str:
     decoded = html.unescape(email_address)
@@ -99,7 +105,8 @@ def process_emails():
 
     emails = response.json().get("data", [])
 
-    print(f"Found {len(emails)} emails.")
+    length_of_emails =len(list(emails))
+    print(f"Found {length_of_emails} emails.")
 
     for email in emails:
 
@@ -154,7 +161,7 @@ def process_emails():
                     ""
                 ),
 
-                "Body": email_body,
+                "Body": clean_email_body(email_body),
 
                 "Priority": llm_output["urgency"],
 
@@ -216,8 +223,10 @@ if __name__ == "__main__":
         except Exception as e:
 
             print("\nUnexpected Error")
-            print(e)
+            print("Error type:", type(e).__name__)
+            print("Error:", repr(e))
+            traceback.print_exc()
 
-        print("\nSleeping for 5 minutes...\n")
+        print("\nSleeping for 7 minutes...\n")
 
-        time.sleep(300)
+        time.sleep(420)

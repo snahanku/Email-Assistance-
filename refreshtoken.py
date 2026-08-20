@@ -1,15 +1,11 @@
 import requests
-import json
-import os 
+import os
 from dotenv import load_dotenv
-
-
 
 load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-CODE = os.getenv("CODE")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
 
@@ -24,25 +20,32 @@ def get_access_token():
         "grant_type": "refresh_token"
     }
 
-    response = requests.post(url, data=payload)
+    response = requests.post(
+        url,
+        data=payload,
+        timeout=30
+    )
 
-    if response.status_code != 200:
-        raise Exception(response.text)
+    print("Token API Status:", response.status_code)
 
     data = response.json()
+
+    # DO NOT print the actual access token
+    if response.status_code != 200:
+        raise Exception(
+            f"Token refresh failed: {data}"
+        )
+
+    if "access_token" not in data:
+        raise Exception(
+            f"No access token returned: {data}"
+        )
+
+    print("New access token received")
+    print("Expires in:", data.get("expires_in"))
 
     return data["access_token"]
 
 
-
-#response = requests.post(url, data=payload)
-
-#print(response.status_code)
-#print(json.dumps(response.json(), indent=4))
-
-###### show tokens & saving it 
 if __name__ == "__main__":
     token = get_access_token()
-    print(token)
-    with open("access_token.txt", "w") as f:
-        f.write(token)
